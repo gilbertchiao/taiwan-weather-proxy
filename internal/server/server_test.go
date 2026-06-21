@@ -12,6 +12,7 @@ import (
 
 	"taiwan-weather-proxy/internal/config"
 	"taiwan-weather-proxy/internal/model"
+	"taiwan-weather-proxy/internal/timeutil"
 )
 
 func testLogger() *slog.Logger {
@@ -63,7 +64,9 @@ func TestHandleCurrentSuccess(t *testing.T) {
 		obs: &model.ObservationRecord{
 			Location: "三重區", StationName: "三重",
 			Temperature: fptr(25.4), Humidity: fptr(78), Rainfall: fptr(0),
-			Weather: "晴", ObsTime: time.Now().Format("2006-01-02 15:04:05"),
+			// 以台灣時間建構觀測時間,與 handler 的台灣時區解讀一致,
+			// 使測試不受執行環境系統時區影響 (CI 為 UTC)。
+			Weather: "晴", ObsTime: timeutil.Now().Format("2006-01-02 15:04:05"),
 			FetchedAt: "2026-06-21T11:05:00+08:00",
 		},
 	}
