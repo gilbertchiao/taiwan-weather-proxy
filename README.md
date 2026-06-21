@@ -1,5 +1,9 @@
 # taiwan-weather-proxy
 
+[![CI](https://github.com/gilbertchiao/taiwan-weather-proxy/actions/workflows/ci.yml/badge.svg)](https://github.com/gilbertchiao/taiwan-weather-proxy/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/gilbertchiao/taiwan-weather-proxy?sort=semver)](https://github.com/gilbertchiao/taiwan-weather-proxy/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 輕量的天氣資料代理伺服器。定時向中央氣象署 (CWA) 開放資料平臺撈取「即時觀測」與「短效期預報」，整理、扁平化並快取後，提供簡潔的 RESTful API 給前端設備（例如停車場顯示螢幕）調用。
 
 ## 功能特色
