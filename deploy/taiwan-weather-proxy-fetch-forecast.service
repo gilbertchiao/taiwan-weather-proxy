@@ -1,0 +1,36 @@
+# ==========================================================
+# systemd 服務單元:單次預報更新 (oneshot,供 timer 觸發)
+#
+# 使用情境:偏好由 systemd timer 管理排程而非程式內建排程時。
+# 此時主服務 .env 應設 ENABLE_SCHEDULER=false (API 只負責提供查詢)。
+#
+# 與 taiwan-weather-proxy-fetch-forecast.timer 搭配使用。
+# ==========================================================
+[Unit]
+Description=Taiwan Weather Proxy - 單次預報更新 (fetch forecast)
+Documentation=https://github.com/gilbertchiao/taiwan-weather-proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=weather
+Group=weather
+WorkingDirectory=/opt/taiwan-weather-proxy
+Environment=TZ=Asia/Taipei
+EnvironmentFile=/opt/taiwan-weather-proxy/.env
+ExecStart=/opt/taiwan-weather-proxy/bin/weather-proxy fetch forecast
+SyslogIdentifier=weather-proxy-fetch-fc
+
+# --- 安全強化 ---
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/taiwan-weather-proxy/data /opt/taiwan-weather-proxy/logs
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+LockPersonality=true

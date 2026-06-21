@@ -1,0 +1,57 @@
+# ==========================================================
+# systemd 服務單元:taiwan-weather-proxy (serve 模式,內建雙排程)
+#
+# 此為「推薦」部署方式:程式內建排程會自動以各自頻率更新
+# 觀測 (預設 10 分) 與預報 (預設 1 小時),無需額外 timer。
+#
+# 安裝:
+#   sudo cp deploy/taiwan-weather-proxy.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now taiwan-weather-proxy
+#
+# 詳細步驟見 docs/deployment-ubuntu.md
+# ==========================================================
+[Unit]
+Description=Taiwan Weather Proxy (天氣資料中介代理服務)
+Documentation=https://github.com/gilbertchiao/taiwan-weather-proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=weather
+Group=weather
+WorkingDirectory=/opt/taiwan-weather-proxy
+# 預設時區台灣 (程式本身已明確處理 Asia/Taipei,此處再對齊 OS 層時間)
+Environment=TZ=Asia/Taipei
+# 由 .env 載入所有設定 (請確保 ENABLE_SCHEDULER=true 以使用內建排程)
+EnvironmentFile=/opt/taiwan-weather-proxy/.env
+ExecStart=/opt/taiwan-weather-proxy/bin/weather-proxy serve
+
+# 異常自動重啟
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=20s
+
+# 日誌交由 journald 收集 (程式本身亦會寫入 logs/ 目錄)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=weather-proxy
+
+# --- 安全強化 (least privilege) ---
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# 僅允許寫入資料庫與日誌目錄,其餘檔案系統唯讀
+ReadWritePaths=/opt/taiwan-weather-proxy/data /opt/taiwan-weather-proxy/logs
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+
+[Install]
+WantedBy=multi-user.target

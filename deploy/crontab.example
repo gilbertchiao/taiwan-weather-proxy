@@ -1,0 +1,25 @@
+# ==========================================================
+# 外部 Cron 範例 (適用 ENABLE_SCHEDULER=false 的部署方式)
+#
+# 安裝方式:
+#   crontab -e
+# 然後貼上下方設定 (請替換為實際的執行檔與專案路徑)。
+#
+# 說明:
+#   - 觀測每 10 分鐘、預報每小時各更新一次 (對應兩種不同的更新頻率)。
+#   - 透過 cd 切換到專案目錄,讓程式讀得到 .env 與相對路徑的 data/、logs/。
+#   - 標準輸出與錯誤另外導向檔案備查 (程式本身亦有日誌輪替)。
+# ==========================================================
+
+# 以台灣時區解讀下方排程時間 (Vixie cron 支援;程式本身亦已綁定 Asia/Taipei)。
+TZ=Asia/Taipei
+
+# 分 時 日 月 週   指令
+# 觀測:每 10 分鐘
+*/10 * * * * cd /opt/taiwan-weather-proxy && /opt/taiwan-weather-proxy/bin/weather-proxy fetch observation >> /opt/taiwan-weather-proxy/logs/cron.log 2>&1
+# 預報:每小時第 5 分
+5 * * * * cd /opt/taiwan-weather-proxy && /opt/taiwan-weather-proxy/bin/weather-proxy fetch forecast >> /opt/taiwan-weather-proxy/logs/cron.log 2>&1
+
+# 若以 Docker 部署且關閉內建排程,可改用:
+# */10 * * * * docker exec taiwan-weather-proxy /app/weather-proxy fetch observation >> /var/log/weather-cron.log 2>&1
+# 5    * * * * docker exec taiwan-weather-proxy /app/weather-proxy fetch forecast    >> /var/log/weather-cron.log 2>&1

@@ -1,0 +1,24 @@
+# ==========================================================
+# systemd timer:每小時觸發預報資料更新
+#
+# 安裝 (與 taiwan-weather-proxy-fetch-forecast.service 一起):
+#   sudo cp deploy/taiwan-weather-proxy-fetch-forecast.service /etc/systemd/system/
+#   sudo cp deploy/taiwan-weather-proxy-fetch-forecast.timer   /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now taiwan-weather-proxy-fetch-forecast.timer
+#
+# 檢視排程:systemctl list-timers taiwan-weather-proxy-fetch-forecast.timer
+# ==========================================================
+[Unit]
+Description=每小時觸發 Taiwan Weather Proxy 預報更新
+Documentation=https://github.com/gilbertchiao/taiwan-weather-proxy
+
+[Timer]
+# 每小時的第 5 分執行 (錯開整點,讓官方完成更新)
+OnCalendar=*-*-* *:05:00
+# 開機後若錯過排程時間,補跑一次
+Persistent=true
+Unit=taiwan-weather-proxy-fetch-forecast.service
+
+[Install]
+WantedBy=timers.target

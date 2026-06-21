@@ -1,0 +1,24 @@
+# ==========================================================
+# systemd timer:每 10 分鐘觸發觀測資料更新
+#
+# 安裝 (與 taiwan-weather-proxy-fetch-observation.service 一起):
+#   sudo cp deploy/taiwan-weather-proxy-fetch-observation.service /etc/systemd/system/
+#   sudo cp deploy/taiwan-weather-proxy-fetch-observation.timer   /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now taiwan-weather-proxy-fetch-observation.timer
+#
+# 檢視排程:systemctl list-timers taiwan-weather-proxy-fetch-observation.timer
+# ==========================================================
+[Unit]
+Description=每 10 分鐘觸發 Taiwan Weather Proxy 觀測更新
+Documentation=https://github.com/gilbertchiao/taiwan-weather-proxy
+
+[Timer]
+# 每小時的 0,10,20,30,40,50 分執行
+OnCalendar=*-*-* *:00/10:00
+# 開機後若錯過排程時間,補跑一次
+Persistent=true
+Unit=taiwan-weather-proxy-fetch-observation.service
+
+[Install]
+WantedBy=timers.target
