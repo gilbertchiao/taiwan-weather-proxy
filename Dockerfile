@@ -3,7 +3,8 @@
 # ==========================================================
 
 # --- 階段一:建置 ---
-# go.mod 要求 go 1.26,故 builder 使用對應版本。
+# go.mod 的最低要求為 go 1.26,builder 則使用較新的穩定版 toolchain,
+# Go 向下相容,不影響建置結果。版本由 Dependabot 的 docker group 自動更新。
 FROM golang:1.27-alpine AS builder
 
 WORKDIR /src
