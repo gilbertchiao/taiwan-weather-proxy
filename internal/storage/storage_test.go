@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"database/sql"
 	"path/filepath"
 	"testing"
 
@@ -102,7 +103,7 @@ func TestForecastsRoundtrip(t *testing.T) {
 
 	records := []model.ForecastRecord{
 		{Location: "三重區", StartTime: "2026-06-21 09:00:00", Weather: "晴", PoP: iptr(0), Temperature: iptr(30)},
-		{Location: "三重區", StartTime: "2026-06-21 12:00:00", Weather: "多雲", PoP: iptr(20), Temperature: iptr(33)},
+		{Location: "三重區", StartTime: "2026-06-21 12:00:00", Weather: "多雲", WeatherCode: "04", PoP: iptr(20), Temperature: iptr(33)},
 		{Location: "三重區", StartTime: "2026-06-21 15:00:00", Weather: "陰", PoP: iptr(40), Temperature: iptr(31)},
 		{Location: "三重區", StartTime: "2026-06-21 18:00:00", Weather: "雨", PoP: iptr(70), Temperature: iptr(28)},
 	}
@@ -124,6 +125,12 @@ func TestForecastsRoundtrip(t *testing.T) {
 	if got[0].PoP == nil || *got[0].PoP != 20 {
 		t.Errorf("PoP 讀回錯誤: %v", got[0].PoP)
 	}
+	if got[0].WeatherCode != "04" {
+		t.Errorf("WeatherCode = %q, 預期 \"04\" (保留前導零)", got[0].WeatherCode)
+	}
+	if got[1].WeatherCode != "" {
+		t.Errorf("未提供代碼時 WeatherCode 應為空字串,實際 %q", got[1].WeatherCode)
+	}
 
 	// 重複寫入 (含更新值) 應 UPSERT 而非新增。
 	records[1].Temperature = iptr(99)
@@ -133,5 +140,87 @@ func TestForecastsRoundtrip(t *testing.T) {
 	all, _ := store.LatestForecasts("三重區", "2026-06-21 00:00:00", 0)
 	if len(all) != 4 {
 		t.Errorf("UPSERT 後應仍為 4 筆,實際 %d 筆", len(all))
+	}
+}
+
+// legacyForecastsSchema 為新增 weather_code 欄位之前的 forecasts 資料表定義。
+const legacyForecastsSchema = `
+CREATE TABLE forecasts (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    location    TEXT    NOT NULL,
+    start_time  TEXT    NOT NULL,
+    weather     TEXT,
+    pop         INTEGER,
+    temperature INTEGER,
+    raw_json    TEXT,
+    fetched_at  TEXT    NOT NULL,
+    UNIQUE(location, start_time)
+);
+INSERT INTO forecasts (location, start_time, weather, pop, temperature, fetched_at)
+VALUES ('三重區', '2026-06-21 12:00:00', '多雲', 20, 33, '2026-06-21T11:00:00+08:00');
+`
+
+// TestMigrateAddsWeatherCode 驗證既有 (舊版結構) 資料庫啟動時會補上 weather_code 欄位,
+// 舊資料保留、可重複執行,且下一輪 UPSERT 會填入代碼。
+func TestMigrateAddsWeatherCode(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "legacy.db")
+
+	// 以舊版結構建立資料庫並放入一筆舊資料。
+	legacy, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatalf("開啟舊版資料庫失敗: %v", err)
+	}
+	if _, err := legacy.Exec(legacyForecastsSchema); err != nil {
+		t.Fatalf("建立舊版資料表失敗: %v", err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatalf("關閉舊版資料庫失敗: %v", err)
+	}
+
+	// 連續開啟兩次:第一次補欄,第二次確認重複執行不會失敗。
+	for i := range 2 {
+		store, err := New(dbPath)
+		if err != nil {
+			t.Fatalf("第 %d 次開啟既有資料庫失敗: %v", i+1, err)
+		}
+
+		var count int
+		if err := store.db.QueryRow(
+			`SELECT COUNT(*) FROM pragma_table_info('forecasts') WHERE name = 'weather_code'`,
+		).Scan(&count); err != nil {
+			t.Fatalf("查詢欄位資訊失敗: %v", err)
+		}
+		if count != 1 {
+			t.Fatalf("第 %d 次開啟後 weather_code 欄位數 = %d, 預期 1", i+1, count)
+		}
+		if err := store.Close(); err != nil {
+			t.Fatalf("關閉資料庫失敗: %v", err)
+		}
+	}
+
+	store, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("開啟資料庫失敗: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	// 舊資料列保留,weather_code 為 NULL (讀回為空字串)。
+	got, err := store.LatestForecasts("三重區", "2026-06-21 00:00:00", 0)
+	if err != nil {
+		t.Fatalf("LatestForecasts 失敗: %v", err)
+	}
+	if len(got) != 1 || got[0].Weather != "多雲" || got[0].WeatherCode != "" {
+		t.Fatalf("舊資料讀回不符: %+v", got)
+	}
+
+	// 下一輪抓取的 UPSERT 會自動填上代碼,不需回填。
+	if err := store.SaveForecasts([]model.ForecastRecord{
+		{Location: "三重區", StartTime: "2026-06-21 12:00:00", Weather: "多雲", WeatherCode: "04", PoP: iptr(20)},
+	}); err != nil {
+		t.Fatalf("SaveForecasts 失敗: %v", err)
+	}
+	got, _ = store.LatestForecasts("三重區", "2026-06-21 00:00:00", 0)
+	if len(got) != 1 || got[0].WeatherCode != "04" {
+		t.Errorf("UPSERT 後 WeatherCode 應為 \"04\",實際: %+v", got)
 	}
 }

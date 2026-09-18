@@ -58,6 +58,15 @@
 - **重試**：worker 對上游失敗重試 `MAX_RETRIES` 次、間隔 `RETRY_DELAY_SECONDS`，期間尊重關閉訊號。
 - **過期標記**：觀測資料超過 `STALE_THRESHOLD_OBSERVATION_MINUTES` 時，回應 `is_stale=true`，由前端決定是否提示。
 - **批次交易**：預報一次數十個時段以單一交易寫入，任一筆失敗即回滾，不留半套資料。
+- **預報附帶不拖累觀測**：`/api/weather/current` 附帶的 `forecast_now`（目前 3 小時時段的 Wx 代碼與降雨機率）僅為附加資訊；預報查詢失敗或查無該時段時回 `forecast_now: null`，觀測資料照常回 200。時段起點由 `timeutil.ForecastBlockStart` 統一計算，與 `/api/weather/forecast` 共用。
+
+## 資料表結構升級（migration）
+
+`CREATE TABLE IF NOT EXISTS` 不會變更已存在的資料表，因此後續版本新增的欄位由 `storage.migrate` 在啟動時補上：先以 `pragma_table_info` 檢查欄位是否存在，缺少才 `ALTER TABLE ... ADD COLUMN`，可安全重複執行。
+
+| 欄位 | 說明 |
+| --- | --- |
+| `forecasts.weather_code`（TEXT） | CWA Wx 天氣現象代碼（保留前導零，例如 `03`）。舊資料列為 NULL，於下一輪預報抓取的 UPSERT 自動填入，不需回填。 |
 
 ## 邊界條件與防呆
 
@@ -65,6 +74,7 @@
 - **代表站挑選**：一個行政區可能同時有正規氣象站與國道交通站。worker 以評分挑選（有效溫度、濕度、純中文站名、天氣文字），優先採用正規氣象站。
 - **時間排序防呆**：`obs_time` 以標準格式儲存（字典序即時間序）；查詢最新時先以 GLOB 驗證格式，避免畸形字串被誤判為最新。
 - **時間對齊**：預報的溫度為瞬時值（`DataTime`）、天氣與降雨機率為時段值（`StartTime`）；以原始時間字串精確比對對齊，再標準化輸出。
+- **目前時段比對**：`forecast_now` 要求預報列的 `start_time` 與目前時段起點完全相同；若該時段缺漏，不會拿下一個（未來）時段冒充。
 - **金鑰遮蔽**：授權碼位於查詢字串，所有對外錯誤訊息都先遮蔽（含 URL 編碼形式），避免外洩到日誌。
 
 ## 排程部署模式

@@ -79,3 +79,15 @@ func Normalize(s string) string {
 func ParseStd(s string) (time.Time, error) {
 	return time.ParseInLocation(StdLayout, strings.TrimSpace(s), taipei)
 }
+
+// ForecastBlockHours 為 CWA F-D0047-069 鄉鎮預報的時段長度 (小時)。
+const ForecastBlockHours = 3
+
+// ForecastBlockStart 回傳 t 所在「3 小時預報時段」的起點 (台灣時間)。
+// 時段以台灣時間 00/03/06…/21 時為界,例如 13:47 屬於 12:00 起的時段。
+func ForecastBlockStart(t time.Time) time.Time {
+	loc := TaipeiLocation()
+	t = t.In(loc)
+	blockHour := t.Hour() - (t.Hour() % ForecastBlockHours)
+	return time.Date(t.Year(), t.Month(), t.Day(), blockHour, 0, 0, 0, loc)
+}

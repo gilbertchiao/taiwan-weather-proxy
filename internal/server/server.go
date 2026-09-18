@@ -3,7 +3,7 @@
 // 採用標準函式庫 net/http 與 Go 1.22 的 ServeMux 路由樣式,不依賴 web 框架。
 // 對外端點:
 //
-//	GET  /api/weather/current   即時天氣 (參數 location,預設見設定)
+//	GET  /api/weather/current   即時天氣 (參數 location,預設見設定;附帶目前時段預報 forecast_now)
 //	GET  /api/weather/forecast  未來預報 (參數 location、可選 hours)
 //	GET  /health                健康檢查
 //	POST /api/v1/refresh        手動觸發更新 (需 REFRESH_TOKEN)
@@ -86,8 +86,37 @@ func (s *Server) handleCurrent(w http.ResponseWriter, r *http.Request) {
 		Weather:     rec.Weather,
 		ObsTime:     rec.ObsTime,
 		IsStale:     s.isObservationStale(rec.ObsTime),
+		ForecastNow: s.currentForecast(location),
 	}
 	s.writeSuccess(w, rec.FetchedAt, data)
+}
+
+// currentForecast 取得「目前所在 3 小時預報時段」的預報摘要,供即時天氣回應附帶。
+//
+// 預報僅為附加資訊:查詢失敗或查無該時段時一律回傳 nil (輸出為 forecast_now: null),
+// 不可影響觀測資料的正常回應。
+func (s *Server) currentForecast(location string) *model.ForecastNow {
+	fromStd := timeutil.ForecastBlockStart(time.Now()).Format(timeutil.StdLayout)
+
+	records, err := s.store.LatestForecasts(location, fromStd, 1)
+	if err != nil {
+		s.log.Error("查詢目前時段預報發生錯誤,forecast_now 以 null 回應", "location", location, "error", err)
+		return nil
+	}
+	// LatestForecasts 取的是 start_time >= fromStd 的第一筆;若目前時段缺漏,
+	// 取到的會是未來時段,不可冒充為「目前」,故須精確比對時段起點。
+	if len(records) == 0 || records[0].StartTime != fromStd {
+		s.log.Warn("查無目前時段的預報,forecast_now 以 null 回應", "location", location, "block_start", fromStd)
+		return nil
+	}
+
+	rec := records[0]
+	return &model.ForecastNow{
+		Time:        rec.StartTime,
+		Weather:     rec.Weather,
+		WeatherCode: optionalString(rec.WeatherCode),
+		PoP:         rec.PoP,
+	}
 }
 
 // handleForecast 處理 GET /api/weather/forecast。
@@ -96,14 +125,10 @@ func (s *Server) handleForecast(w http.ResponseWriter, r *http.Request) {
 	hours := s.resolveHours(r)
 
 	// 自「目前所在的 3 小時時段起點」開始取,確保涵蓋正在進行中的時段。
-	loc := timeutil.TaipeiLocation()
-	now := time.Now().In(loc)
-	blockHour := now.Hour() - (now.Hour() % 3)
-	from := time.Date(now.Year(), now.Month(), now.Day(), blockHour, 0, 0, 0, loc)
-	fromStd := from.Format(timeutil.StdLayout)
+	fromStd := timeutil.ForecastBlockStart(time.Now()).Format(timeutil.StdLayout)
 
 	// 每 3 小時一筆;+1 以涵蓋進行中的時段,確保回傳「未來 hours 小時內」完整覆蓋。
-	limit := hours/3 + 1
+	limit := hours/timeutil.ForecastBlockHours + 1
 
 	records, err := s.store.LatestForecasts(location, fromStd, limit)
 	if err != nil {
@@ -121,6 +146,7 @@ func (s *Server) handleForecast(w http.ResponseWriter, r *http.Request) {
 		forecasts = append(forecasts, model.ForecastItem{
 			Time:        rec.StartTime,
 			Weather:     rec.Weather,
+			WeatherCode: optionalString(rec.WeatherCode),
 			PoP:         rec.PoP,
 			Temperature: rec.Temperature,
 		})
@@ -203,6 +229,14 @@ func (s *Server) isObservationStale(obsTime string) bool {
 		return true
 	}
 	return time.Since(t) > s.cfg.ObservationStaleThreshold
+}
+
+// optionalString 將空字串轉為 nil,使 JSON 輸出為 null 而非 ""。
+func optionalString(v string) *string {
+	if v == "" {
+		return nil
+	}
+	return new(v)
 }
 
 // === 回應輔助 ===

@@ -100,6 +100,9 @@ func TestParseForecast(t *testing.T) {
 	if first.Weather != "晴" {
 		t.Errorf("第一筆 Weather = %q, 預期 晴", first.Weather)
 	}
+	if first.WeatherCode != "01" {
+		t.Errorf("第一筆 WeatherCode = %q, 預期 \"01\" (保留前導零)", first.WeatherCode)
+	}
 	if first.PoP == nil || *first.PoP != 0 {
 		t.Errorf("第一筆 PoP = %v, 預期 0", first.PoP)
 	}
@@ -116,12 +119,38 @@ func TestParseForecast(t *testing.T) {
 		if r.Weather == "" {
 			t.Errorf("第 %d 筆缺少 Weather", i)
 		}
+		if len(r.WeatherCode) != 2 {
+			t.Errorf("第 %d 筆 WeatherCode = %q, 預期為 2 碼字串", i, r.WeatherCode)
+		}
 		if r.Temperature != nil {
 			withTemp++
 		}
 	}
 	if withTemp == 0 {
 		t.Error("所有時段皆無溫度,溫度對齊邏輯可能有誤")
+	}
+}
+
+// TestParseForecastMissingWeatherCode CWA 未提供 WeatherCode (或為無效哨兵值) 時應為空字串。
+func TestParseForecastMissingWeatherCode(t *testing.T) {
+	body := []byte(`{"records":{"Locations":[{"Location":[{"LocationName":"三重區","WeatherElement":[
+		{"ElementName":"天氣現象","Time":[
+			{"StartTime":"2026-06-21T12:00:00+08:00","EndTime":"2026-06-21T15:00:00+08:00","ElementValue":[{"Weather":"晴"}]},
+			{"StartTime":"2026-06-21T15:00:00+08:00","EndTime":"2026-06-21T18:00:00+08:00","ElementValue":[{"Weather":"晴","WeatherCode":"-99"}]}
+		]}]}]}]}}`)
+
+	result, err := ParseForecast(body)
+	if err != nil {
+		t.Fatalf("ParseForecast 失敗: %v", err)
+	}
+	records := result["三重區"]
+	if len(records) != 2 {
+		t.Fatalf("預期 2 筆,實際 %d 筆", len(records))
+	}
+	for i, r := range records {
+		if r.WeatherCode != "" {
+			t.Errorf("第 %d 筆 WeatherCode = %q, 預期空字串", i, r.WeatherCode)
+		}
 	}
 }
 

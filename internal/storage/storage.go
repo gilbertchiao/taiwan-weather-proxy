@@ -42,14 +42,15 @@ CREATE TABLE IF NOT EXISTS observations (
 CREATE INDEX IF NOT EXISTS idx_obs_location_time ON observations(location, obs_time DESC);
 
 CREATE TABLE IF NOT EXISTS forecasts (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    location    TEXT    NOT NULL,
-    start_time  TEXT    NOT NULL,
-    weather     TEXT,
-    pop         INTEGER,
-    temperature INTEGER,
-    raw_json    TEXT,
-    fetched_at  TEXT    NOT NULL,
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    location     TEXT    NOT NULL,
+    start_time   TEXT    NOT NULL,
+    weather      TEXT,
+    weather_code TEXT,
+    pop          INTEGER,
+    temperature  INTEGER,
+    raw_json     TEXT,
+    fetched_at   TEXT    NOT NULL,
     UNIQUE(location, start_time)
 );
 CREATE INDEX IF NOT EXISTS idx_fc_location_time ON forecasts(location, start_time);
@@ -85,7 +86,40 @@ func New(dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("初始化資料表失敗: %w", err)
 	}
 
+	if err := migrate(db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("資料表結構升級失敗: %w", err)
+	}
+
 	return &Store{db: db}, nil
+}
+
+// migrate 為既有資料庫補上後續版本新增的欄位。
+//
+// CREATE TABLE IF NOT EXISTS 不會變更已存在的資料表,因此新欄位需另以
+// ALTER TABLE 補上。每一步都先檢查欄位是否存在,可安全地重複執行。
+// 補上的欄位在舊資料列為 NULL,會於下一輪抓取的 UPSERT 自動填入,不需回填。
+func migrate(db *sql.DB) error {
+	return addColumnIfMissing(db, "forecasts", "weather_code", "TEXT")
+}
+
+// addColumnIfMissing 在資料表缺少指定欄位時以 ALTER TABLE 補上;已存在則不動作。
+// table / column / columnType 皆為程式內的常數,非外部輸入。
+func addColumnIfMissing(db *sql.DB, table, column, columnType string) error {
+	var count int
+	if err := db.QueryRow(
+		`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, table, column,
+	).Scan(&count); err != nil {
+		return fmt.Errorf("檢查欄位是否存在失敗 (%s.%s): %w", table, column, err)
+	}
+	if count > 0 {
+		return nil
+	}
+
+	if _, err := db.Exec(fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, table, column, columnType)); err != nil {
+		return fmt.Errorf("新增欄位失敗 (%s.%s): %w", table, column, err)
+	}
+	return nil
 }
 
 // Close 關閉資料庫連線。
@@ -190,14 +224,15 @@ func (s *Store) SaveForecasts(records []model.ForecastRecord) error {
 	defer func() { _ = tx.Rollback() }()
 
 	const query = `
-INSERT INTO forecasts (location, start_time, weather, pop, temperature, raw_json, fetched_at)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO forecasts (location, start_time, weather, weather_code, pop, temperature, raw_json, fetched_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(location, start_time) DO UPDATE SET
-    weather     = excluded.weather,
-    pop         = excluded.pop,
-    temperature = excluded.temperature,
-    raw_json    = excluded.raw_json,
-    fetched_at  = excluded.fetched_at;
+    weather      = excluded.weather,
+    weather_code = excluded.weather_code,
+    pop          = excluded.pop,
+    temperature  = excluded.temperature,
+    raw_json     = excluded.raw_json,
+    fetched_at   = excluded.fetched_at;
 `
 	fetchedAt := nowRFC3339()
 	stmt, err := tx.Prepare(query)
@@ -208,7 +243,7 @@ ON CONFLICT(location, start_time) DO UPDATE SET
 
 	for _, rec := range records {
 		if _, err := stmt.Exec(
-			rec.Location, rec.StartTime, nullStr(rec.Weather),
+			rec.Location, rec.StartTime, nullStr(rec.Weather), nullStr(rec.WeatherCode),
 			nullInt(rec.PoP), nullInt(rec.Temperature), nullStr(rec.RawJSON), fetchedAt,
 		); err != nil {
 			return fmt.Errorf("寫入預報資料失敗 (location=%s, start_time=%s): %w",
@@ -229,7 +264,7 @@ ON CONFLICT(location, start_time) DO UPDATE SET
 // 可直接用字串比較過濾。
 func (s *Store) LatestForecasts(location, fromStd string, limit int) ([]model.ForecastRecord, error) {
 	query := `
-SELECT location, start_time, COALESCE(weather,''), pop, temperature, COALESCE(raw_json,''), fetched_at
+SELECT location, start_time, COALESCE(weather,''), COALESCE(weather_code,''), pop, temperature, COALESCE(raw_json,''), fetched_at
 FROM forecasts
 WHERE location = ? AND start_time >= ?
 ORDER BY start_time ASC`
@@ -251,7 +286,7 @@ ORDER BY start_time ASC`
 			rec       model.ForecastRecord
 			pop, temp sql.NullInt64
 		)
-		if err := rows.Scan(&rec.Location, &rec.StartTime, &rec.Weather,
+		if err := rows.Scan(&rec.Location, &rec.StartTime, &rec.Weather, &rec.WeatherCode,
 			&pop, &temp, &rec.RawJSON, &rec.FetchedAt); err != nil {
 			return nil, fmt.Errorf("讀取預報資料列失敗: %w", err)
 		}

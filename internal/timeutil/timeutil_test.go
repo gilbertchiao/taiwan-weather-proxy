@@ -59,3 +59,27 @@ func TestParseStdRoundtrip(t *testing.T) {
 		t.Errorf("ParseStd 結果時區偏移 = %d, 預期 28800", offset)
 	}
 }
+
+// TestForecastBlockStart 驗證 3 小時預報時段起點的計算,且不受輸入時區影響。
+func TestForecastBlockStart(t *testing.T) {
+	loc := TaipeiLocation()
+	cases := []struct {
+		name string
+		in   time.Time
+		want string
+	}{
+		{"時段中間", time.Date(2026, 6, 21, 13, 47, 5, 0, loc), "2026-06-21 12:00:00"},
+		{"恰為時段起點", time.Date(2026, 6, 21, 12, 0, 0, 0, loc), "2026-06-21 12:00:00"},
+		{"時段最後一秒", time.Date(2026, 6, 21, 14, 59, 59, 0, loc), "2026-06-21 12:00:00"},
+		{"午夜後", time.Date(2026, 6, 21, 1, 30, 0, 0, loc), "2026-06-21 00:00:00"},
+		// UTC 20:30 = 台灣隔日 04:30,應落在台灣時間 03:00 的時段。
+		{"UTC 輸入跨日", time.Date(2026, 6, 20, 20, 30, 0, 0, time.UTC), "2026-06-21 03:00:00"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := ForecastBlockStart(c.in).Format(StdLayout); got != c.want {
+				t.Errorf("ForecastBlockStart = %q, 預期 %q", got, c.want)
+			}
+		})
+	}
+}

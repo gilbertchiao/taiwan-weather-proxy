@@ -115,6 +115,7 @@ func buildLocationForecast(loc fcLocation) []model.ForecastRecord {
 			Location:    loc.LocationName,
 			StartTime:   timeutil.Normalize(t.StartTime),
 			Weather:     cleanText(firstValue(t.ElementValue, "Weather")),
+			WeatherCode: cleanText(firstValue(t.ElementValue, "WeatherCode")),
 			PoP:         parseIntPercent(popByKey[t.StartTime]),
 			Temperature: parseTemperatureInt(tempByKey[t.StartTime]),
 		}

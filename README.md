@@ -100,13 +100,25 @@ GET /api/weather/current?location=三重區
     "rainfall_1hr": 0,
     "weather": "晴",
     "obs_time": "2026-06-21 12:00:00",
-    "is_stale": false
+    "is_stale": false,
+    "forecast_now": {
+      "time": "2026-06-21 12:00:00",
+      "weather": "多雲時晴",
+      "weather_code": "03",
+      "pop": 20
+    }
   }
 }
 ```
 
 - `temperature` / `humidity` / `rainfall_1hr`：無資料時為 `null`（與「值為 0」區分）。
 - `is_stale`：觀測時間超過 `STALE_THRESHOLD_OBSERVATION_MINUTES` 時為 `true`。
+- `forecast_now`：「目前所在 3 小時預報時段」的預報摘要，來源為預報資料集 F-D0047-069；其餘欄位則為測站觀測（O-A0001-001）。
+  兩者描述的不是同一件事（`weather` 是觀測到的天氣、`forecast_now.weather` 是預報），因此刻意分層，`weather_code` **不是** 觀測 `weather` 的代碼。
+  - `time`：時段起點（台灣時間）。
+  - `weather_code`：CWA Wx 天氣現象代碼，**字串**並保留前導零（`"03"` 而非 `3`；範圍 `01`–`42`）；CWA 未提供時為 `null`。
+  - `pop`：降雨機率（整數 %），無資料時為 `null`。注意與 `rainfall_1hr`（雨量 mm）不同。
+  - 查無目前時段的預報（例如預報尚未抓取）時，整個 `forecast_now` 為 `null`，觀測資料仍照常回傳 200。
 
 ### 取得未來預報
 
@@ -123,13 +135,15 @@ GET /api/weather/forecast?location=三重區&hours=12
   "data": {
     "location": "三重區",
     "forecasts": [
-      { "time": "2026-06-21 12:00:00", "weather": "晴",   "pop": 0,  "temperature": 35 },
-      { "time": "2026-06-21 15:00:00", "weather": "晴",   "pop": 0,  "temperature": 34 },
-      { "time": "2026-06-21 18:00:00", "weather": "晴",   "pop": 0,  "temperature": 31 }
+      { "time": "2026-06-21 12:00:00", "weather": "晴", "weather_code": "01", "pop": 0, "temperature": 35 },
+      { "time": "2026-06-21 15:00:00", "weather": "晴", "weather_code": "01", "pop": 0, "temperature": 34 },
+      { "time": "2026-06-21 18:00:00", "weather": "晴", "weather_code": "01", "pop": 0, "temperature": 31 }
     ]
   }
 }
 ```
+
+- `weather_code`：CWA Wx 天氣現象代碼字串（保留前導零），CWA 未提供時為 `null`。
 
 ### 健康檢查
 

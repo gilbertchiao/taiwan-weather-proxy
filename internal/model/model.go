@@ -26,6 +26,7 @@ type ForecastRecord struct {
 	Location    string // 所屬行政區 (例如 三重區)
 	StartTime   string // 時段起點,標準化為 "YYYY-MM-DD HH:MM:SS"
 	Weather     string // 天氣現象文字 (例如「多雲」)
+	WeatherCode string // CWA Wx 天氣現象代碼 (例如 "03",保留前導零),無資料時為空字串
 	PoP         *int   // 降雨機率 (%),無資料時為 nil
 	Temperature *int   // 預測溫度 (°C),無資料時為 nil
 	RawJSON     string // 原始資料 JSON,保留備查
@@ -35,22 +36,36 @@ type ForecastRecord struct {
 // === API 回應結構 (對應系統規格指定的輸出格式) ===
 
 // CurrentData 為 GET /api/weather/current 的 data 欄位內容。
+//
+// 觀測欄位 (weather 等) 來自測站 O-A0001-001;ForecastNow 則來自預報 F-D0047-069。
+// 兩者描述的不是同一件事,因此預報值刻意放在巢狀物件內,不與觀測欄位平放,
+// 避免被誤解為「weather_code 是觀測 weather 的代碼」。
 type CurrentData struct {
-	Location    string   `json:"location"`
-	Temperature *float64 `json:"temperature"`
-	Humidity    *float64 `json:"humidity"`
-	Rainfall1hr *float64 `json:"rainfall_1hr"`
-	Weather     string   `json:"weather,omitempty"`
-	ObsTime     string   `json:"obs_time"`
-	IsStale     bool     `json:"is_stale"`
+	Location    string       `json:"location"`
+	Temperature *float64     `json:"temperature"`
+	Humidity    *float64     `json:"humidity"`
+	Rainfall1hr *float64     `json:"rainfall_1hr"`
+	Weather     string       `json:"weather,omitempty"`
+	ObsTime     string       `json:"obs_time"`
+	IsStale     bool         `json:"is_stale"`
+	ForecastNow *ForecastNow `json:"forecast_now"` // 查無目前時段的預報時為 null
+}
+
+// ForecastNow 為「目前所在 3 小時預報時段」的預報摘要 (天氣現象代碼與降雨機率)。
+type ForecastNow struct {
+	Time        string  `json:"time"`         // 時段起點 "YYYY-MM-DD HH:MM:SS" (台灣時間)
+	Weather     string  `json:"weather"`      // 預報天氣現象文字 (例如「多雲時晴」)
+	WeatherCode *string `json:"weather_code"` // CWA Wx 代碼字串 (保留前導零,例如 "03");無資料為 null
+	PoP         *int    `json:"pop"`          // 降雨機率 (%),無資料為 null
 }
 
 // ForecastItem 為單筆未來預報 (每 3 小時)。
 type ForecastItem struct {
-	Time        string `json:"time"`
-	Weather     string `json:"weather"`
-	PoP         *int   `json:"pop"`
-	Temperature *int   `json:"temperature"`
+	Time        string  `json:"time"`
+	Weather     string  `json:"weather"`
+	WeatherCode *string `json:"weather_code"` // CWA Wx 代碼字串 (保留前導零);無資料為 null
+	PoP         *int    `json:"pop"`
+	Temperature *int    `json:"temperature"`
 }
 
 // ForecastData 為 GET /api/weather/forecast 的 data 欄位內容。
